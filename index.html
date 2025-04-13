@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Authentication System</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+        
+        body {
+            background: linear-gradient(135deg, #00416A, #E4E5E6);
+            min-height: 100vh;
+        }
+
+        .code-input:focus {
+            border-color: #4F46E5;
+            outline: none;
+        }
+
+        .strength-indicator {
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center p-4">
+    <div class="glass rounded-xl p-8 w-full max-w-md">
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-bold text-white mb-2">Secure Login</h1>
+            <div class="flex justify-center gap-4 mb-4">
+                <button id="qrButton" class="px-4 py-2 rounded-lg glass text-white active" onclick="toggleMethod('qr')">QR Code</button>
+                <button id="standardButton" class="px-4 py-2 rounded-lg glass text-white" onclick="toggleMethod('standard')">Standard</button>
+            </div>
+        </div>
+
+        <!-- QR Code Section -->
+        <div id="qrSection" class="text-center">
+            <div id="qrcode" class="bg-white p-4 rounded-lg mx-auto w-48 h-48 mb-4"></div>
+            <div class="text-white mb-4">
+                QR Code expires in: <span id="qrTimer" class="font-bold">5:00</span>
+            </div>
+        </div>
+
+        <!-- Standard Login Form -->
+        <form id="loginForm" class="hidden" onsubmit="handleLogin(event)">
+            <div class="mb-4">
+                <input type="email" placeholder="Email" class="w-full p-3 rounded-lg glass text-white placeholder-gray-300" required>
+            </div>
+            <div class="mb-4 relative">
+                <input type="password" id="password" placeholder="Password" class="w-full p-3 rounded-lg glass text-white placeholder-gray-300" required>
+                <button type="button" onclick="togglePassword()" class="absolute right-3 top-3 text-white">
+                    <i class="bi bi-eye"></i>
+                </button>
+            </div>
+            <div class="flex items-center mb-4">
+                <input type="checkbox" id="remember" class="mr-2">
+                <label for="remember" class="text-white">Remember me</label>
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700">Login</button>
+        </form>
+
+        <!-- MFA Verification -->
+        <div id="mfaSection" class="hidden">
+            <div class="flex gap-2 mb-4">
+                <input type="text" maxlength="1" class="code-input w-12 h-12 text-center glass text-white rounded-lg" oninput="handleCodeInput(this, 0)">
+                <input type="text" maxlength="1" class="code-input w-12 h-12 text-center glass text-white rounded-lg" oninput="handleCodeInput(this, 1)">
+                <input type="text" maxlength="1" class="code-input w-12 h-12 text-center glass text-white rounded-lg" oninput="handleCodeInput(this, 2)">
+                <input type="text" maxlength="1" class="code-input w-12 h-12 text-center glass text-white rounded-lg" oninput="handleCodeInput(this, 3)">
+                <input type="text" maxlength="1" class="code-input w-12 h-12 text-center glass text-white rounded-lg" oninput="handleCodeInput(this, 4)">
+                <input type="text" maxlength="1" class="code-input w-12 h-12 text-center glass text-white rounded-lg" oninput="handleCodeInput(this, 5)">
+            </div>
+            <div class="text-white text-center mb-4">
+                Code expires in: <span id="mfaTimer" class="font-bold">30</span>s
+            </div>
+            <button id="resendButton" onclick="resendCode()" class="w-full glass text-white py-2 rounded-lg mb-4">Resend Code</button>
+        </div>
+
+        <div class="text-center mt-4">
+            <a href="#" onclick="showResetPassword()" class="text-white hover:underline">Forgot Password?</a>
+        </div>
+    </div>
+
+    <script>
+        // QR Code Generation
+        let qrcode = new QRCode(document.getElementById("qrcode"), {
+            text: "https://example.com/auth/" + Math.random().toString(36).substr(2, 9),
+            width: 192,
+            height: 192
+        });
+
+        // Timer Functions
+        let qrTimeLeft = 300; // 5 minutes
+        let mfaTimeLeft = 30;
+        let qrInterval, mfaInterval;
+
+        function startQRTimer() {
+            qrInterval = setInterval(() => {
+                qrTimeLeft--;
+                const minutes = Math.floor(qrTimeLeft / 60);
+                const seconds = qrTimeLeft % 60;
+                document.getElementById("qrTimer").textContent = 
+                    `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                
+                if (qrTimeLeft <= 0) {
+                    clearInterval(qrInterval);
+                    regenerateQR();
+                }
+            }, 1000);
+        }
+
+        function startMFATimer() {
+            mfaInterval = setInterval(() => {
+                mfaTimeLeft--;
+                document.getElementById("mfaTimer").textContent = mfaTimeLeft;
+                
+                if (mfaTimeLeft <= 0) {
+                    clearInterval(mfaInterval);
+                    document.getElementById("resendButton").disabled = false;
+                }
+            }, 1000);
+        }
+
+        // Toggle between QR and Standard login
+        function toggleMethod(method) {
+            const qrSection = document.getElementById("qrSection");
+            const loginForm = document.getElementById("loginForm");
+            const qrButton = document.getElementById("qrButton");
+            const standardButton = document.getElementById("standardButton");
+
+            if (method === 'qr') {
+                qrSection.classList.remove("hidden");
+                loginForm.classList.add("hidden");
+                qrButton.classList.add("active");
+                standardButton.classList.remove("active");
+            } else {
+                qrSection.classList.add("hidden");
+                loginForm.classList.remove("hidden");
+                qrButton.classList.remove("active");
+                standardButton.classList.add("active");
+            }
+        }
+
+        // Password visibility toggle
+        function togglePassword() {
+            const passwordInput = document.getElementById("password");
+            const type = passwordInput.type === "password" ? "text" : "password";
+            passwordInput.type = type;
+        }
+
+        // MFA Code Input Handler
+        function handleCodeInput(input, index) {
+            const value = input.value;
+            const codeInputs = document.querySelectorAll('.code-input');
+            
+            if (value.length === 1 && index < 5) {
+                codeInputs[index + 1].focus();
+            } else if (value.length === 0 && index > 0) {
+                codeInputs[index - 1].focus();
+            }
+        }
+
+        // Resend Code
+        let resendCooldown = false;
+        function resendCode() {
+            if (!resendCooldown) {
+                resendCooldown = true;
+                const button = document.getElementById("resendButton");
+                button.disabled = true;
+                button.textContent = "Code sent! Wait 30s";
+                
+                setTimeout(() => {
+                    resendCooldown = false;
+                    button.disabled = false;
+                    button.textContent = "Resend Code";
+                }, 30000);
+
+                mfaTimeLeft = 30;
+                startMFATimer();
+            }
+        }
+
+        // Initialize timers
+        startQRTimer();
+
+        // Login Handler
+        function handleLogin(event) {
+            event.preventDefault();
+            // Show MFA section after successful login
+            document.getElementById("loginForm").classList.add("hidden");
+            document.getElementById("mfaSection").classList.remove("hidden");
+            startMFATimer();
+        }
+
+        // QR Code regeneration
+        function regenerateQR() {
+            qrcode.makeCode("https://example.com/auth/" + Math.random().toString(36).substr(2, 9));
+            qrTimeLeft = 300;
+            startQRTimer();
+        }
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
